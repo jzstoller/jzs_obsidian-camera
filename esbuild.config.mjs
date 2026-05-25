@@ -48,5 +48,5 @@ esbuild.build({
 	logLevel: "info",
 	sourcemap: prod ? false : 'inline',
 	treeShaking: true,
-	outfile: 'main.js',
+	outfile: '/Users/stoller/Documents/Obsidian/Plugin Dev Vault/.obsidian/plugins/jzs_obsidian-camera/main.js',
 }).catch(() => process.exit(1));
