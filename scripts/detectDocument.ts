@@ -1,3 +1,37 @@
+/**
+ * Draws the detected quadrilateral on the original image and saves a debug overlay PNG.
+ * @param imagePath Path to the original image
+ * @param corners Array of 4 points (tl, tr, br, bl)
+ * @param outputPath Where to save the overlay PNG
+ */
+export async function saveDebugOverlay(
+  imagePath: string,
+  corners: [Corner, Corner, Corner, Corner],
+  outputPath: string
+) {
+  // Load original image as RGBA
+  const image = sharp(imagePath).ensureAlpha();
+  const meta = await image.metadata();
+  const w = meta.width!;
+  const h = meta.height!;
+
+  // Draw the quadrilateral as an SVG overlay
+  const points = corners.concat([corners[0]]) // close the loop
+    .map(pt => `${pt.x},${pt.y}`)
+    .join(' ');
+  const svg = `<svg width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg">
+    <polyline points="${points}" fill="none" stroke="#ff2a2a" stroke-width="6" stroke-linejoin="round"/>
+    <circle cx="${corners[0].x}" cy="${corners[0].y}" r="16" fill="#ff2a2a"/>
+    <circle cx="${corners[1].x}" cy="${corners[1].y}" r="16" fill="#2a7fff"/>
+    <circle cx="${corners[2].x}" cy="${corners[2].y}" r="16" fill="#2aff2a"/>
+    <circle cx="${corners[3].x}" cy="${corners[3].y}" r="16" fill="#ffea2a"/>
+  </svg>`;
+
+  await image
+    .composite([{ input: Buffer.from(svg), top: 0, left: 0 }])
+    .png()
+    .toFile(outputPath);
+}
 import cv from "@techstark/opencv-js";
 import sharp from "sharp";
 

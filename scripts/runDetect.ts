@@ -1,7 +1,7 @@
-import { execSync } from "child_process";
+import { spawnSync } from "child_process";
 import fs from "fs";
 import path from "path";
-import { detectDocument, saveWarped } from "./detectDocument";
+import { detectDocument, saveDebugOverlay, saveWarped } from "./detectDocument";
 
 const INPUT = process.argv[2] ?? "test-images/doc.jpg";
 const OUTPUT_DIR = "output";
@@ -29,12 +29,17 @@ async function run() {
   console.log(`Warped size: ${result.width} × ${result.height}px`);
 
   const stem = path.basename(INPUT, path.extname(INPUT));
-  const outputPath = path.join(OUTPUT_DIR, `${stem}-warped.png`);
-  await saveWarped(result.warped, result.width, result.height, outputPath);
+  const warpedPath = path.join(OUTPUT_DIR, `${stem}-warped.png`);
+  const debugPath = path.join(OUTPUT_DIR, `${stem}-detected.png`);
+  await saveWarped(result.warped, result.width, result.height, warpedPath);
+  await saveDebugOverlay(INPUT, result.corners, debugPath);
   result.warped.delete();
 
-  console.log(`Saved → ${outputPath}`);
-  execSync(`open "${outputPath}"`);
+  console.log(`Saved warped → ${warpedPath}`);
+  console.log(`Saved overlay → ${debugPath}`);
+  // Open both images for quick visual check (absolute paths, no shell quoting issues)
+  spawnSync("open", [path.resolve(debugPath)]);
+  spawnSync("open", [path.resolve(warpedPath)]);
 }
 
 run().catch((err) => {

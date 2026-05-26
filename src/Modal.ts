@@ -29,6 +29,10 @@ class CameraModal extends Modal {
 		const snapPhotoButton = firstRow.createEl("button", {
 			text: "Take a snap",
 		});
+		const scanButton = firstRow.createEl("button", {
+			text: "Scan",
+		});
+		scanButton.style.display = "none";
 		firstRow.style.display = "none";
 		secondRow.style.display = "none";
 
@@ -62,15 +66,8 @@ class CameraModal extends Modal {
 			scanPicker.capture = "environment";
 			scanPicker.style.display = "none";
 
-			const scanLabel = secondRow.createEl("label");
-			scanLabel.style.cursor = "pointer";
-			scanLabel.style.display = "inline-block";
-			scanLabel.style.margin = "5px 0px";
-			scanLabel.style.padding = "5px";
-			scanLabel.style.border = "0.5px solid #555";
-			scanLabel.innerHTML = "&#128247; Scan";
-			scanLabel.appendChild(scanPicker);
-			secondRow.appendChild(scanLabel);
+			scanButton.style.display = "inline-block";
+			scanButton.onclick = () => scanPicker.click();
 
 			scanPicker.onchange = () => {
 				if (!scanPicker.files?.length) return;
@@ -153,13 +150,13 @@ class CameraModal extends Modal {
 			new Notice(`Adding new ${isImage ? "Image" : "Video"} to vault...`);
 
 			const filePath = this.chosenFolderPath + "/" + fileName;
-			const folderExists = app.vault.getAbstractFileByPath(
+			const folderExists = this.app.vault.getAbstractFileByPath(
 				this.chosenFolderPath,
 			);
 			if (!folderExists)
-				await app.vault.createFolder(this.chosenFolderPath);
-			const fileExists = app.vault.getAbstractFileByPath(filePath);
-			if (!fileExists) await app.vault.createBinary(filePath, file);
+				await this.app.vault.createFolder(this.chosenFolderPath);
+			const fileExists = this.app.vault.getAbstractFileByPath(filePath);
+			if (!fileExists) await this.app.vault.createBinary(filePath, file);
 
 			if (!view) return new Notice(`Saved to ${filePath}`);
 
