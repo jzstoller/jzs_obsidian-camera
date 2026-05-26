@@ -1,4 +1,4 @@
-import { App, MarkdownView, Modal, Notice } from "obsidian";
+import { App, MarkdownView, Modal, Notice, Platform } from "obsidian";
 import { CameraPluginSettings } from "./SettingsTab";
 
 class CameraModal extends Modal {
@@ -55,6 +55,31 @@ class CameraModal extends Modal {
 		label.appendChild(filePicker);
 
 		secondRow.appendChild(label);
+
+		if (Platform.isIosApp) {
+			const scanPicker = secondRow.createEl("input", { type: "file" });
+			scanPicker.accept = "image/*";
+			scanPicker.capture = "environment";
+			scanPicker.style.display = "none";
+
+			const scanLabel = secondRow.createEl("label");
+			scanLabel.style.cursor = "pointer";
+			scanLabel.style.display = "inline-block";
+			scanLabel.style.margin = "5px 0px";
+			scanLabel.style.padding = "5px";
+			scanLabel.style.border = "0.5px solid #555";
+			scanLabel.innerHTML = "&#128247; Scan";
+			scanLabel.appendChild(scanPicker);
+			secondRow.appendChild(scanLabel);
+
+			scanPicker.onchange = () => {
+				if (!scanPicker.files?.length) return;
+				const selectedFile = scanPicker.files[0];
+				selectedFile.arrayBuffer().then((buf) =>
+					saveFile(buf, true, selectedFile.name.split(" ").join("-")),
+				);
+			};
+		}
 
 		videoEl.autoplay = true;
 		videoEl.muted = true;
