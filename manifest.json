@@ -1,10 +1,9 @@
 {
-	"id": "obsidian-camera",
-	"name": "Camera",
-	"version": "1.8.0",
+	"id": "jzs_obsidian-camera",
+	"name": "Camera_JZS",
+	"version": "0.1.0",
 	"minAppVersion": "0.14.6",
-	"description": "Camera plugin for Obsidian",
-	"author": "Aldrin Jenson",
-	"authorUrl": "https://aldrinjenson.github.io/",
+	"description": "JZS Camera plugin for Obsidian",
+	"author": "Jason Stoller from Aldrin Jenson",
 	"isDesktopOnly": false
 }
