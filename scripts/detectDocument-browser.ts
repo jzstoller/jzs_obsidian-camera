@@ -46,6 +46,30 @@ export function detectDocument(imageSource: HTMLImageElement | HTMLCanvasElement
   const scale = Math.min(1.0, 1200 / src.cols);
   cv.resize(src, resized, new cv.Size(0, 0), scale, scale);
 
+  // Extract saturation and value channels for paper detection
+  const rgb = new cv.Mat();
+  cv.cvtColor(resized, rgb, cv.COLOR_RGBA2RGB);
+  const hsv = new cv.Mat();
+  cv.cvtColor(rgb, hsv, cv.COLOR_RGB2HSV);
+  rgb.delete();
+
+  const hsvChannels = new cv.MatVector();
+  cv.split(hsv, hsvChannels);
+  const saturation = hsvChannels.get(1);  // S channel
+  const value      = hsvChannels.get(2);  // V channel
+  hsvChannels.delete();                   // safe to delete now, we have both
+
+  const satMask = new cv.Mat();
+  cv.threshold(saturation, satMask, 100, 255, cv.THRESH_BINARY_INV); // low sat = paper
+
+  const valMask = new cv.Mat();
+  cv.threshold(value, valMask, 120, 255, cv.THRESH_BINARY);          // bright = paper
+
+  // Must be BOTH low saturation AND bright → strong paper signal
+  cv.bitwise_and(satMask, valMask, satMask);
+  valMask.delete();
+  value.delete();
+
   // Convert to grayscale
   let gray = new cv.Mat();
   cv.cvtColor(resized, gray, cv.COLOR_RGBA2GRAY);
@@ -74,6 +98,9 @@ export function detectDocument(imageSource: HTMLImageElement | HTMLCanvasElement
   // Stage 3: Combine Signals (edge AND brightness)
   let combined = new cv.Mat();
   cv.bitwise_and(thresh, edges, combined);
+
+  // Apply saturation mask to suppress carpet interference
+  cv.bitwise_and(combined, satMask, combined);
 
   // Stage 4: Find Contours
   let contours = new cv.MatVector();
@@ -202,6 +229,9 @@ export function detectDocument(imageSource: HTMLImageElement | HTMLCanvasElement
   resized.delete();
   gray.delete();
   smooth.delete();
+  hsv.delete();
+  saturation.delete();
+  satMask.delete();
   edges.delete();
   thresh.delete();
   combined.delete();

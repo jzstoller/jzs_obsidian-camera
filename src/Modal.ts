@@ -129,7 +129,7 @@ class CameraModal extends Modal {
 			const seconds = String(now.getSeconds()).padStart(2, '0');
 			const timestampFilename = `image_${month}${day}${year}_${hours}${minutes}${seconds}`;
 				const scanTimestamp = new Date().toLocaleString('en-US', { timeZone: 'America/New_York', hour12: true });
-					let logMsg = `[PLUGIN v16] scanId=${scanId} Scan started: ${scanTimestamp}\nFile: ${selectedFile.name} (${selectedFile.size} bytes)\n`;
+					let logMsg = `[PLUGIN v17] scanId=${scanId} Scan started: ${scanTimestamp}\nFile: ${selectedFile.name} (${selectedFile.size} bytes)\n`;
 				new Notice("Loading OpenCV.js...");
 				logMsg += 'Loading OpenCV.js...\n';
 				try {
@@ -445,7 +445,7 @@ class CameraModal extends Modal {
 		const seconds = String(new Date().getSeconds()).padStart(2, '0');
 		const timestampFilename = `image_${month}${day}${year}_${hours}${minutes}${seconds}`;
 		const scanTimestamp = new Date().toLocaleString('en-US', { timeZone: 'America/New_York', hour12: true });
-		let logMsg = `[PLUGIN v16] Scan started: ${scanTimestamp}\nFile: ${selectedFile.name} (${selectedFile.size} bytes)\n`;
+		let logMsg = `[PLUGIN v17] Scan started: ${scanTimestamp}\nFile: ${selectedFile.name} (${selectedFile.size} bytes)\n`;
 
 		new Notice("Loading OpenCV.js...");
 		logMsg += 'Loading OpenCV.js...\n';
@@ -606,7 +606,7 @@ class CameraModal extends Modal {
 		const seconds = String(new Date().getSeconds()).padStart(2, '0');
 		const timestampFilename = `image_${month}${day}${year}_${hours}${minutes}${seconds}`;
 		const uploadTimestamp = new Date().toLocaleString('en-US', { timeZone: 'America/New_York', hour12: true });
-		let logMsg = `[PLUGIN v16] Upload started: ${uploadTimestamp}\nFile: ${selectedFile.name} (${selectedFile.size} bytes)\n`;
+		let logMsg = `[PLUGIN v17] Upload started: ${uploadTimestamp}\nFile: ${selectedFile.name} (${selectedFile.size} bytes)\n`;
 
 		new Notice("Loading OpenCV.js...");
 		logMsg += 'Loading OpenCV.js...\n';
