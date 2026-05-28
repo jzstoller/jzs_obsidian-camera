@@ -88,35 +88,22 @@ export async function loadOpenCV(app: App, logger?: Logger, timeoutMs = 30000): 
       document.body.appendChild(script);
     };
 
-    const localPluginPath = '.obsidian/plugins/jzs_scan/opencv.js';
+const localPluginPath = 'plugins/jzs_scan/opencv.js';
 
     const tryLoadLocal = async () => {
       if (Platform.isIosApp) {
-        // iOS WKWebView blocks <script src> for local files; read via vault API and inject as a Blob URL instead
-        log('Trying to load OpenCV.js from: local plugin file (iOS blob)');
-        let blobUrl: string | null = null;
-        try {
-          const data = await app.vault.adapter.readBinary(localPluginPath);
-          const blob = new Blob([data], { type: 'application/javascript' });
-          blobUrl = URL.createObjectURL(blob);
-          await new Promise<void>((res, rej) => {
-            tryLoad(blobUrl!, 'local plugin file', res, rej);
-          });
-          URL.revokeObjectURL(blobUrl);
-          finish(resolve);
-        } catch (err) {
-          if (blobUrl) URL.revokeObjectURL(blobUrl);
-          log('Local load failed (' + (err?.message ?? err) + '), trying CDN fallback...');
-          tryLoad(
-            CDN_URL,
-            'OpenCV CDN',
-            () => finish(resolve),
-            (reason2) => {
-              log('CDN load also failed: ' + reason2);
-              finish(() => reject(new Error('OpenCV.js failed to load from local and CDN: ' + reason2)));
-            }
-          );
-        }
+        // On iOS, the vault adapter can't reliably access plugin files after restart.
+        // CDN is faster and more reliable, so skip local attempts and go straight to CDN.
+        log('On iOS: skipping local file attempts, using OpenCV CDN...');
+        tryLoad(
+          CDN_URL,
+          'OpenCV CDN',
+          () => finish(resolve),
+          (reason2) => {
+            log('CDN load failed: ' + reason2);
+            finish(() => reject(new Error('OpenCV.js failed to load from CDN: ' + reason2)));
+          }
+        );
       } else {
         const localPath = (app.vault.adapter as any).getResourcePath(localPluginPath);
         // Try local file, then fall back to CDN

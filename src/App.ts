@@ -6,7 +6,7 @@ export default class ObsidianCamera extends Plugin {
   settings: CameraPluginSettings;
   async onload() {
     await this.loadSettings();
-    this.addRibbonIcon("camera", "Obsidian Camera", (evt: MouseEvent) => {
+    this.addRibbonIcon("camera", "JZS Doc Scan", (evt: MouseEvent) => {
       new CameraModal(this.app, this.settings).open();
     });
     this.addSettingTab(new CameraSettingsTab(this.app, this));
