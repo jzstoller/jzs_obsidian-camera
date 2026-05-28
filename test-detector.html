@@ -255,7 +255,7 @@
         }
 
 function detectDocument(imageSource) {
-            // Pre-draw to an explicit canvas
+            // Pre-draw to an explicit canvas to work around cv.imread issues
             const naturalW = imageSource.naturalWidth || imageSource.width;
             const naturalH = imageSource.naturalHeight || imageSource.height;
             const srcCanvas = document.createElement('canvas');
@@ -304,14 +304,15 @@ function detectDocument(imageSource) {
             // Stage 4: Find Contours
             let contours = new cv.MatVector();
             let hierarchy = new cv.Mat();
-            // Change retrieval mode to RETR_LIST
+            // Use RETR_LIST to get all contours
             cv.findContours(combined, contours, hierarchy, cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE);
 
+            // Stage 5-6: Find largest contour and apply hull + approximation
             let bestCnt = null;
             let maxArea = 0;
 
             for (let i = 0; i < contours.size(); i++) {
-                const cnt  = contours.get(i);
+                const cnt = contours.get(i);
                 const area = cv.contourArea(cnt);
                 if (area > maxArea) {
                     maxArea = area;
@@ -324,33 +325,12 @@ function detectDocument(imageSource) {
 
             // Compute convex hull to smooth out squiggly edges
             let approx = null;
-            let bestCandidate = null;
             if (bestCnt) {
-                const hull    = new cv.Mat();
-                approx  = new cv.Mat();
+                const hull = new cv.Mat();
+                approx = new cv.Mat();
                 cv.convexHull(bestCnt, hull);
                 const peri = cv.arcLength(hull, true);
                 cv.approxPolyDP(hull, approx, 0.04 * peri, true);
-
-                console.log("Points in approx:", approx.rows); // should be 4
-
-                // Extract corner points
-                const pts = [];
-                for (let j = 0; j < approx.rows; j++) {
-                    pts.push({
-                        x: approx.intPtr(j, 0)[0],
-                        y: approx.intPtr(j, 0)[1]
-                    });
-                }
-
-                bestCandidate = {
-                    approx,
-                    pts,
-                    area: maxArea,
-                    score: 1.0,
-                    contourIdx: 0
-                };
-
                 hull.delete();
                 bestCnt.delete();
             }
@@ -387,7 +367,7 @@ function detectDocument(imageSource) {
             stage6Canvas.height = resized.rows;
             const contoursViz = cv.Mat.zeros(resized.rows, resized.cols, cv.CV_8UC3);
             for (let i = 0; i < contours.size(); i++) {
-                const color = i === (bestCandidate?.contourIdx || -1)
+                const color = (approx && approx.rows > 0 && i === 0)
                     ? new cv.Scalar(0, 255, 0, 255)
                     : new cv.Scalar(200, 200, 200, 255);
                 cv.drawContours(contoursViz, contours, i, color, 2);
@@ -404,16 +384,21 @@ function detectDocument(imageSource) {
             cv.imshow(stage6bCanvas, debugMat);
             debugMat.delete();
 
-            // Stage 7: Best candidate highlighted
+            // Stage 7: Best candidate highlighted with corners
             const stage7Canvas = document.createElement('canvas');
             stage7Canvas.width = resized.cols;
             stage7Canvas.height = resized.rows;
             const stage7Mat = cv.Mat.zeros(resized.rows, resized.cols, cv.CV_8UC3);
             cv.cvtColor(combined, stage7Mat, cv.COLOR_GRAY2BGR);
-            if (bestCandidate) {
-                const pts = bestCandidate.pts;
+            if (approx && approx.rows > 0) {
+                const pts = [];
+                for (let i = 0; i < approx.rows; i++) {
+                    pts.push({
+                        x: approx.intPtr(i, 0)[0],
+                        y: approx.intPtr(i, 0)[1]
+                    });
+                }
                 const ptsMat = cv.matFromArray(pts.length, 1, cv.CV_32SC2, pts.flatMap(p => [p.x, p.y]));
-                // Create a MatVector for polylines
                 const ptsVector = new cv.MatVector();
                 ptsVector.push_back(ptsMat);
                 cv.polylines(stage7Mat, ptsVector, true, new cv.Scalar(0, 255, 0, 255), 3);
@@ -426,7 +411,10 @@ function detectDocument(imageSource) {
             cv.imshow(stage7Canvas, stage7Mat);
             stage7Mat.delete();
 
-            // Prepare output
+            // iOS warp logic with MAX_WARP_DIM cap
+            const MAX_WARP_DIM = 2000;
+            const warpScale = Math.min(MAX_WARP_DIM / src.cols, MAX_WARP_DIM / src.rows, 1.0);
+
             let corners = [
                 { x: 0, y: 0 },
                 { x: src.cols - 1, y: 0 },
@@ -438,31 +426,66 @@ function detectDocument(imageSource) {
             warpedCanvas.width = src.cols;
             warpedCanvas.height = src.rows;
 
-            if (bestCandidate) {
-                const scaledPts = bestCandidate.pts.map(p => ({
-                    x: p.x / scale,
-                    y: p.y / scale
-                }));
+            if (approx && approx.rows > 0) {
+                // Extract corner points from approx
+                const pts = [];
+                for (let i = 0; i < approx.rows; i++) {
+                    pts.push({
+                        x: approx.intPtr(i, 0)[0],
+                        y: approx.intPtr(i, 0)[1]
+                    });
+                }
+                approx.delete();
 
+                // Scale corners back to original full-resolution coordinates
+                const inv = 1 / scale;
+                const scaledPts = pts.map(p => ({ x: Math.round(p.x * inv), y: Math.round(p.y * inv) }));
                 corners = orderPoints(scaledPts);
 
-                const { M, w, h } = buildTransform(corners);
+                // Down-scale source for warp if needed, then scale corners accordingly
+                let warpSrc = src;
+                let warpCorners = corners;
+                if (warpScale < 1.0) {
+                    warpSrc = new cv.Mat();
+                    cv.resize(src, warpSrc, new cv.Size(
+                        Math.round(src.cols * warpScale),
+                        Math.round(src.rows * warpScale)
+                    ));
+                    warpCorners = corners.map(p => ({
+                        x: Math.round(p.x * warpScale),
+                        y: Math.round(p.y * warpScale),
+                    }));
+                }
+
+                const { M, w, h } = buildTransform(warpCorners);
                 let dst = new cv.Mat();
-                cv.warpPerspective(src, dst, M, new cv.Size(Math.round(w), Math.round(h)));
+                cv.warpPerspective(warpSrc, dst, M, new cv.Size(Math.round(w), Math.round(h)));
                 M.delete();
+                if (warpSrc !== src) warpSrc.delete();
 
                 warpedCanvas.width = Math.round(w);
                 warpedCanvas.height = Math.round(h);
                 cv.imshow(warpedCanvas, dst);
                 dst.delete();
-
-                bestCandidate.approx.delete();
             } else {
-                cv.imshow(warpedCanvas, src);
+                // Fallback: no document found, return the full image as-is
+                if (approx) approx.delete();
+
+                let fallbackSrc = src;
+                if (warpScale < 1.0) {
+                    fallbackSrc = new cv.Mat();
+                    cv.resize(src, fallbackSrc, new cv.Size(
+                        Math.round(src.cols * warpScale),
+                        Math.round(src.rows * warpScale)
+                    ));
+                }
+                warpedCanvas.width = fallbackSrc.cols;
+                warpedCanvas.height = fallbackSrc.rows;
+                cv.imshow(warpedCanvas, fallbackSrc);
+                if (fallbackSrc !== src) fallbackSrc.delete();
             }
 
             // Cleanup
-            src.delete();
             resized.delete();
             gray.delete();
             smooth.delete();
@@ -472,6 +495,7 @@ function detectDocument(imageSource) {
             kernelRect.delete();
             contours.delete();
             hierarchy.delete();
+            src.delete();
 
             return {
                 corners,
