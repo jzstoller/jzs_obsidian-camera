@@ -14,7 +14,11 @@ export default class ObsidianCamera extends Plugin {
       }
     });
     this.addRibbonIcon("arrow-up", "JZS Doc Upload", (evt: MouseEvent) => {
-      new CameraModal(this.app, this.settings, true).open();
+      if (Platform.isIosApp) {
+        CameraModal.triggerIosUpload(this.app, this.settings);
+      } else {
+        new CameraModal(this.app, this.settings, true).open();
+      }
     });
     this.addSettingTab(new CameraSettingsTab(this.app, this));
 

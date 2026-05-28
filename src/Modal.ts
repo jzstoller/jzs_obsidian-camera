@@ -129,7 +129,7 @@ class CameraModal extends Modal {
 			const seconds = String(now.getSeconds()).padStart(2, '0');
 			const timestampFilename = `image_${month}${day}${year}_${hours}${minutes}${seconds}`;
 				const scanTimestamp = new Date().toLocaleString('en-US', { timeZone: 'America/New_York', hour12: true });
-					let logMsg = `[PLUGIN v14] scanId=${scanId} Scan started: ${scanTimestamp}\nFile: ${selectedFile.name} (${selectedFile.size} bytes)\n`;
+					let logMsg = `[PLUGIN v16] scanId=${scanId} Scan started: ${scanTimestamp}\nFile: ${selectedFile.name} (${selectedFile.size} bytes)\n`;
 				new Notice("Loading OpenCV.js...");
 				logMsg += 'Loading OpenCV.js...\n';
 				try {
@@ -445,7 +445,7 @@ class CameraModal extends Modal {
 		const seconds = String(new Date().getSeconds()).padStart(2, '0');
 		const timestampFilename = `image_${month}${day}${year}_${hours}${minutes}${seconds}`;
 		const scanTimestamp = new Date().toLocaleString('en-US', { timeZone: 'America/New_York', hour12: true });
-		let logMsg = `[PLUGIN v14] Scan started: ${scanTimestamp}\nFile: ${selectedFile.name} (${selectedFile.size} bytes)\n`;
+		let logMsg = `[PLUGIN v16] Scan started: ${scanTimestamp}\nFile: ${selectedFile.name} (${selectedFile.size} bytes)\n`;
 
 		new Notice("Loading OpenCV.js...");
 		logMsg += 'Loading OpenCV.js...\n';
@@ -535,6 +535,167 @@ class CameraModal extends Modal {
 							const view = this.app.workspace.getActiveViewOfType(MarkdownView);
 							if (view) {
 								await appendToLogFile(this.app, `[scan] inserting note content at cursor`);
+								const cursor = view.editor.getCursor();
+								view.editor.replaceRange(`![[${overlayPath}]]\n![[${croppedPath}]]\n`, cursor);
+							} else {
+								new Notice(`Saved to ${croppedPath} and ${overlayPath}`);
+							}
+
+							new Notice("Document detected and saved!");
+							await appendToLogFile(this.app, logMsg);
+						}, 'image/png');
+					}, 'image/png');
+				} catch (err) {
+					logMsg += `Document detection failed: ${err.message}\n`;
+					new Notice("Document detection failed: " + err.message);
+					if (window.console && window.console.error) {
+						console.error("Document detection error:", err);
+					}
+					await appendToLogFile(this.app, logMsg);
+				}
+			};
+			img.onerror = async () => {
+				const msg = "Failed to load image for detection";
+				new Notice(msg);
+				logMsg += msg + '\n';
+				if (window.console && window.console.error) {
+					console.error("Image failed to load for detection");
+				}
+				await appendToLogFile(this.app, logMsg);
+			};
+			img.src = dataUrl;
+		};
+		reader.onerror = async (e) => {
+			const msg = "Failed to read image file for detection";
+			new Notice(msg);
+			logMsg += msg + '\n';
+			if (window.console && window.console.error) {
+				console.error("FileReader error:", e);
+			}
+			await appendToLogFile(this.app, logMsg);
+		};
+		reader.readAsDataURL(selectedFile);
+	}
+
+	static triggerIosUpload(app: App, cameraSettings: CameraPluginSettings) {
+		if (!Platform.isIosApp) return;
+
+		const filePicker = document.createElement("input");
+		filePicker.type = "file";
+		filePicker.accept = "image/*";
+		filePicker.style.display = "none";
+
+		filePicker.onchange = async () => {
+			if (!filePicker.files?.length) return;
+			const selectedFile = filePicker.files[0];
+			const modal = new CameraModal(app, cameraSettings);
+			await modal.handleUploadFile(selectedFile);
+			document.body.removeChild(filePicker);
+		};
+
+		document.body.appendChild(filePicker);
+		filePicker.click();
+	}
+
+	async handleUploadFile(selectedFile: File) {
+		const month = String(new Date().getMonth() + 1).padStart(2, '0');
+		const day = String(new Date().getDate()).padStart(2, '0');
+		const year = String(new Date().getFullYear()).slice(-2);
+		const hours = String(new Date().getHours()).padStart(2, '0');
+		const minutes = String(new Date().getMinutes()).padStart(2, '0');
+		const seconds = String(new Date().getSeconds()).padStart(2, '0');
+		const timestampFilename = `image_${month}${day}${year}_${hours}${minutes}${seconds}`;
+		const uploadTimestamp = new Date().toLocaleString('en-US', { timeZone: 'America/New_York', hour12: true });
+		let logMsg = `[PLUGIN v16] Upload started: ${uploadTimestamp}\nFile: ${selectedFile.name} (${selectedFile.size} bytes)\n`;
+
+		new Notice("Loading OpenCV.js...");
+		logMsg += 'Loading OpenCV.js...\n';
+		try {
+			await loadOpenCV(this.app, (msg) => { logMsg += msg + '\n'; });
+			new Notice("OpenCV.js loaded. Reading image...");
+			logMsg += 'OpenCV.js loaded. Reading image...\n';
+		} catch (err) {
+			const msg = "Failed to load OpenCV.js: " + err.message;
+			new Notice(msg);
+			logMsg += msg + '\n';
+			await appendToLogFile(this.app, logMsg);
+			return;
+		}
+
+		const reader = new FileReader();
+		reader.onload = async (e) => {
+			const dataUrl = e.target.result as string;
+			const img = new Image();
+			img.onload = async () => {
+				new Notice("Image loaded. Running document detection...");
+				logMsg += `Image loaded: ${img.width}×${img.height}px. Running document detection...\n`;
+				try {
+					const result = detectDocument(img);
+					if (result.debug) {
+						const d = result.debug;
+						logMsg += `[DEBUG] src=${d.srcCols}×${d.srcRows} type=${d.srcType} pixel0=[${d.srcSamplePixel}]\n`;
+						logMsg += `[DEBUG] dst=${d.dstCols}×${d.dstRows} midPixel=[${d.dstSamplePixel}] warpScale=${d.warpScaleUsed.toFixed(3)}\n`;
+					}
+					logMsg += `Document detected!\nCorners (tl → tr → br → bl):\n`;
+					const labels = ["top-left", "top-right", "bottom-right", "bottom-left"];
+					result.corners.forEach((pt, i) => {
+						logMsg += `  ${labels[i].padEnd(12)} x=${pt.x}, y=${pt.y}\n`;
+					});
+					logMsg += `Warped size: ${result.width} × ${result.height}px\n`;
+
+					const overlayCanvas = createDebugOverlay(img, result.corners);
+
+					result.warped.toBlob(async (croppedBlob) => {
+						if (!croppedBlob) {
+							const msg = "Failed to convert warped image to blob";
+							new Notice(msg);
+							logMsg += msg + '\n';
+							await appendToLogFile(this.app, logMsg);
+							return;
+						}
+
+						overlayCanvas.toBlob(async (overlayBlob: Blob | null) => {
+							if (!overlayBlob) {
+								const msg = "Failed to convert overlay image to blob";
+								new Notice(msg);
+								logMsg += msg + '\n';
+								await appendToLogFile(this.app, logMsg);
+								return;
+							}
+
+							const croppedName = `cropped-${timestampFilename}.png`;
+							const overlayName = `overlay-${timestampFilename}.png`;
+							const croppedPath = this.chosenFolderPath + "/" + croppedName;
+							const overlayPath = this.chosenFolderPath + "/" + overlayName;
+
+							const folderExists = this.app.vault.getAbstractFileByPath(this.chosenFolderPath);
+							if (!folderExists) await this.app.vault.createFolder(this.chosenFolderPath);
+
+							try {
+								const oldCropped = this.app.vault.getAbstractFileByPath(croppedPath);
+								if (oldCropped) await this.app.vault.delete(oldCropped);
+								logMsg += `Deleted old cropped file\n`;
+							} catch (e) {
+								logMsg += `Could not delete old cropped: ${e}\n`;
+							}
+							try {
+								const oldOverlay = this.app.vault.getAbstractFileByPath(overlayPath);
+								if (oldOverlay) await this.app.vault.delete(oldOverlay);
+								logMsg += `Deleted old overlay file\n`;
+							} catch (e) {
+								logMsg += `Could not delete old overlay: ${e}\n`;
+							}
+
+							await this.app.vault.createBinary(croppedPath, await croppedBlob.arrayBuffer());
+							await this.app.vault.createBinary(overlayPath, await overlayBlob.arrayBuffer());
+
+							new Notice(`Adding new Images to vault...`);
+							logMsg += `Saved cropped image as ${croppedName} (${croppedBlob.size} bytes)\n`;
+							logMsg += `Saved overlay image as ${overlayName} (${overlayBlob.size} bytes)\n`;
+
+							const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+							if (view) {
+								await appendToLogFile(this.app, `[upload] inserting note content at cursor`);
 								const cursor = view.editor.getCursor();
 								view.editor.replaceRange(`![[${overlayPath}]]\n![[${croppedPath}]]\n`, cursor);
 							} else {
