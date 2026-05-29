@@ -1,6 +1,6 @@
-import { Plugin, Platform } from "obsidian";
+import { Platform, Plugin } from "obsidian";
 import CameraModal from "./Modal";
-import CameraSettingsTab, { DEFAULT_SETTINGS, CameraPluginSettings } from "./SettingsTab";
+import CameraSettingsTab, { CameraPluginSettings, DEFAULT_SETTINGS } from "./SettingsTab";
 
 export default class ObsidianCamera extends Plugin {
   settings: CameraPluginSettings;
@@ -17,7 +17,7 @@ export default class ObsidianCamera extends Plugin {
       if (Platform.isIosApp) {
         CameraModal.triggerIosUpload(this.app, this.settings);
       } else {
-        new CameraModal(this.app, this.settings, true).open();
+        CameraModal.triggerDesktopUpload(this.app, this.settings);
       }
     });
     this.addSettingTab(new CameraSettingsTab(this.app, this));
@@ -43,7 +43,7 @@ export default class ObsidianCamera extends Plugin {
         if (Platform.isIosApp) {
           CameraModal.triggerIosUpload(this.app, this.settings);
         } else {
-          new CameraModal(this.app, this.settings, true).open();
+          CameraModal.triggerDesktopUpload(this.app, this.settings);
         }
       }
     });

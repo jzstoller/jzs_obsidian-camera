@@ -25,144 +25,157 @@ export interface DetectResult {
   debug?: DetectDebug;
 }
 
-export function detectDocument(imageSource: HTMLImageElement | HTMLCanvasElement): DetectResult {
-  // Pre-draw to an explicit canvas to work around cv.imread issues with
-  // HTMLImageElement in WKWebView / Electron (image not in DOM, etc.)
-  const naturalW = (imageSource as HTMLImageElement).naturalWidth
-    || (imageSource as HTMLCanvasElement).width;
-  const naturalH = (imageSource as HTMLImageElement).naturalHeight
-    || (imageSource as HTMLCanvasElement).height;
-  const srcCanvas = document.createElement('canvas');
-  srcCanvas.width = naturalW;
-  srcCanvas.height = naturalH;
-  const srcCtx = srcCanvas.getContext('2d')!;
-  srcCtx.drawImage(imageSource, 0, 0);
+export function detectDocument(imageSource: HTMLImageElement | HTMLCanvasElement, logger?: (msg: string) => void): DetectResult {
+  const log = (msg: string) => {
+    if (logger) logger(msg);
+    console.log('[detectDocument] ' + msg);
+  };
+  
+  try {
+    // Pre-draw to an explicit canvas to work around cv.imread issues with
+    // HTMLImageElement in WKWebView / Electron (image not in DOM, etc.)
+    const naturalW = (imageSource as HTMLImageElement).naturalWidth
+      || (imageSource as HTMLCanvasElement).width;
+    const naturalH = (imageSource as HTMLImageElement).naturalHeight
+      || (imageSource as HTMLCanvasElement).height;
+    const srcCanvas = document.createElement('canvas');
+    srcCanvas.width = naturalW;
+    srcCanvas.height = naturalH;
+    const srcCtx = srcCanvas.getContext('2d')!;
+    srcCtx.drawImage(imageSource, 0, 0);
 
-  const src = cv.imread(srcCanvas);
+    const ctx = srcCanvas.getContext('2d');
+    if (!ctx) throw new Error('Failed to get canvas 2D context');
+    const imageData = ctx.getImageData(0, 0, srcCanvas.width, srcCanvas.height);
 
-  // Stage 1: Preprocessing
-  // Resize to ~1200px width for speed
-  let resized = new cv.Mat();
-  const scale = Math.min(1.0, 1200 / src.cols);
-  cv.resize(src, resized, new cv.Size(0, 0), scale, scale);
-
-  // Extract saturation and value channels for paper detection
-  const rgb = new cv.Mat();
-  cv.cvtColor(resized, rgb, cv.COLOR_RGBA2RGB);
-  const hsv = new cv.Mat();
-  cv.cvtColor(rgb, hsv, cv.COLOR_RGB2HSV);
-  rgb.delete();
-
-  const hsvChannels = new cv.MatVector();
-  cv.split(hsv, hsvChannels);
-  const saturation = hsvChannels.get(1);  // S channel
-  const value      = hsvChannels.get(2);  // V channel
-  hsvChannels.delete();                   // safe to delete now, we have both
-
-  const satMask = new cv.Mat();
-  cv.threshold(saturation, satMask, 100, 255, cv.THRESH_BINARY_INV); // low sat = paper
-
-  const valMask = new cv.Mat();
-  cv.threshold(value, valMask, 120, 255, cv.THRESH_BINARY);          // bright = paper
-
-  // Must be BOTH low saturation AND bright → strong paper signal
-  cv.bitwise_and(satMask, valMask, satMask);
-  valMask.delete();
-  value.delete();
-
-  // Convert to grayscale
-  let gray = new cv.Mat();
-  cv.cvtColor(resized, gray, cv.COLOR_RGBA2GRAY);
-
-  // Bilateral filter (suppress texture, preserve edges)
-  let smooth = new cv.Mat();
-  cv.bilateralFilter(gray, smooth, 9, 75, 75, cv.BORDER_DEFAULT);
-
-  // Stage 2: Create Multiple Detection Maps
-  // A. Edge Map
-  let edges = new cv.Mat();
-  cv.Canny(smooth, edges, 50, 150);
-
-  // Dilate to thicken edges
-  const kernelRect = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(5, 5));
-  cv.dilate(edges, edges, kernelRect);
-
-  // B. Adaptive Brightness Map
-  let thresh = new cv.Mat();
-  cv.adaptiveThreshold(smooth, thresh, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 31, 15);
-
-  // C. Morphological Cleanup
-  cv.morphologyEx(thresh, thresh, cv.MORPH_OPEN, kernelRect);
-  cv.morphologyEx(thresh, thresh, cv.MORPH_CLOSE, kernelRect);
-
-  // Stage 3: Combine Signals (edge AND brightness)
-  let combined = new cv.Mat();
-  cv.bitwise_and(thresh, edges, combined);
-
-  // Apply saturation mask to suppress carpet interference
-  cv.bitwise_and(combined, satMask, combined);
-
-  // Stage 4: Find Contours
-  let contours = new cv.MatVector();
-  let hierarchy = new cv.Mat();
-  // Use RETR_LIST to get all contours
-  cv.findContours(combined, contours, hierarchy, cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE);
-
-  // Stage 5-6: Find largest contour and apply hull + approximation
-  let bestCnt: any = null;
-  let maxArea = 0;
-
-  for (let i = 0; i < contours.size(); i++) {
-    const cnt = contours.get(i);
-    const area = cv.contourArea(cnt);
-    if (area > maxArea) {
-      maxArea = area;
-      if (bestCnt) bestCnt.delete();
-      bestCnt = cnt;
+    let src: any;
+    if (typeof (window as any).cv.matFromImageData === 'function') {
+      src = cv.matFromImageData(imageData);
     } else {
-      cnt.delete();
+      src = cv.imread(srcCanvas);
     }
-  }
 
-  // Compute convex hull to smooth out squiggly edges
-  let approx: any = null;
-  if (bestCnt) {
-    const hull = new cv.Mat();
-    approx = new cv.Mat();
-    cv.convexHull(bestCnt, hull);
-    const peri = cv.arcLength(hull, true);
-    cv.approxPolyDP(hull, approx, 0.04 * peri, true);
-    hull.delete();
-    bestCnt.delete();
-  }
+    // Stage 1: Preprocessing
+    // Resize to ~1200px width for speed
+    let resized = new cv.Mat();
+    const scale = Math.min(1.0, 1200 / src.cols);
+    cv.resize(src, resized, new cv.Size(0, 0), scale, scale);
 
-  // Sample a pixel from src to verify cv.imread produced real data
-  const srcSamplePixel: number[] = src.rows > 0 && src.cols > 0
-    ? [src.ucharPtr(0, 0)[0], src.ucharPtr(0, 0)[1], src.ucharPtr(0, 0)[2], src.ucharPtr(0, 0)[3]]
-    : [-1, -1, -1, -1];
+    // Extract saturation and value channels for paper detection
+    const rgb = new cv.Mat();
+    cv.cvtColor(resized, rgb, cv.COLOR_RGBA2RGB);
+    const hsv = new cv.Mat();
+    cv.cvtColor(rgb, hsv, cv.COLOR_RGB2HSV);
+    rgb.delete();
 
-  // Cap warp resolution to avoid WASM heap exhaustion on memory-constrained devices (e.g. iOS).
-  // 2000px on the longer side is plenty for high-quality document scans.
-  const MAX_WARP_DIM = 2000;
-  const warpScale = Math.min(MAX_WARP_DIM / src.cols, MAX_WARP_DIM / src.rows, 1.0);
+    const hsvChannels = new cv.MatVector();
+    cv.split(hsv, hsvChannels);
+    const saturation = hsvChannels.get(1);  // S channel
+    const value      = hsvChannels.get(2);  // V channel
+    hsvChannels.delete();
 
-  let warpedCanvas: HTMLCanvasElement;
-  let corners: [Corner, Corner, Corner, Corner];
-  let dstSamplePixel: number[] = [-1, -1, -1, -1];
+    const satMask = new cv.Mat();
+    cv.threshold(saturation, satMask, 100, 255, cv.THRESH_BINARY_INV);
 
-  if (approx && approx.rows > 0) {
-    // Extract corner points from approx
-    const pts: Corner[] = [];
-    for (let i = 0; i < approx.rows; i++) {
-      pts.push({
-        x: approx.intPtr(i, 0)[0],
-        y: approx.intPtr(i, 0)[1]
-      });
+    const valMask = new cv.Mat();
+    cv.threshold(value, valMask, 120, 255, cv.THRESH_BINARY);
+
+    cv.bitwise_and(satMask, valMask, satMask);
+    valMask.delete();
+    value.delete();
+
+    // Convert to grayscale
+    let gray = new cv.Mat();
+    cv.cvtColor(resized, gray, cv.COLOR_RGBA2GRAY);
+
+    // Bilateral filter (suppress texture, preserve edges)
+    let smooth = new cv.Mat();
+    cv.bilateralFilter(gray, smooth, 9, 75, 75, cv.BORDER_DEFAULT);
+
+    // Stage 2: Create Multiple Detection Maps
+    // A. Edge Map
+    let edges = new cv.Mat();
+    cv.Canny(smooth, edges, 50, 150);
+
+    // Dilate to thicken edges
+    const kernelRect = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(5, 5));
+    cv.dilate(edges, edges, kernelRect);
+
+    // B. Adaptive Brightness Map
+    let thresh = new cv.Mat();
+    cv.adaptiveThreshold(smooth, thresh, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 31, 15);
+
+    // C. Morphological Cleanup
+    cv.morphologyEx(thresh, thresh, cv.MORPH_OPEN, kernelRect);
+    cv.morphologyEx(thresh, thresh, cv.MORPH_CLOSE, kernelRect);
+
+    // Stage 3: Combine Signals (edge AND brightness)
+    let combined = new cv.Mat();
+    cv.bitwise_and(thresh, edges, combined);
+
+    // Apply saturation mask to suppress carpet interference
+    cv.bitwise_and(combined, satMask, combined);
+
+    // Stage 4: Find Contours
+    let contours = new cv.MatVector();
+    let hierarchy = new cv.Mat();
+    cv.findContours(combined, contours, hierarchy, cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE);
+
+    // Stage 5-6: Find largest contour and apply hull + approximation
+    let bestCnt: any = null;
+    let maxArea = 0;
+
+    for (let i = 0; i < contours.size(); i++) {
+      const cnt = contours.get(i);
+      const area = cv.contourArea(cnt);
+      if (area > maxArea) {
+        maxArea = area;
+        if (bestCnt) bestCnt.delete();
+        bestCnt = cnt;
+      } else {
+        cnt.delete();
+      }
     }
-    approx.delete();
 
-    // Scale corners back to original full-resolution coordinates
-    const inv = 1 / scale;
+    // Compute convex hull to smooth out squiggly edges
+    let approx: any = null;
+    if (bestCnt) {
+      const hull = new cv.Mat();
+      approx = new cv.Mat();
+      cv.convexHull(bestCnt, hull);
+      const peri = cv.arcLength(hull, true);
+      cv.approxPolyDP(hull, approx, 0.04 * peri, true);
+      hull.delete();
+      bestCnt.delete();
+    }
+
+    // Sample a pixel from src to verify cv.imread produced real data
+    const srcSamplePixel: number[] = src.rows > 0 && src.cols > 0
+      ? [src.ucharPtr(0, 0)[0], src.ucharPtr(0, 0)[1], src.ucharPtr(0, 0)[2], src.ucharPtr(0, 0)[3]]
+      : [-1, -1, -1, -1];
+
+    // Cap warp resolution to avoid WASM heap exhaustion on memory-constrained devices (e.g. iOS).
+    // 2000px on the longer side is plenty for high-quality document scans.
+    const MAX_WARP_DIM = 2000;
+    const warpScale = Math.min(MAX_WARP_DIM / src.cols, MAX_WARP_DIM / src.rows, 1.0);
+
+    let warpedCanvas: HTMLCanvasElement;
+    let corners: [Corner, Corner, Corner, Corner];
+    let dstSamplePixel: number[] = [-1, -1, -1, -1];
+
+    if (approx && approx.rows > 0) {
+      // Extract corner points from approx
+      const pts: Corner[] = [];
+      for (let i = 0; i < approx.rows; i++) {
+        pts.push({
+          x: approx.intPtr(i, 0)[0],
+          y: approx.intPtr(i, 0)[1]
+        });
+      }
+      approx.delete();
+
+      // Scale corners back to original full-resolution coordinates
+      const inv = 1 / scale;
     const scaledPts = pts.map(p => ({ x: Math.round(p.x * inv), y: Math.round(p.y * inv) }));
     corners = orderPoints(scaledPts) as [Corner, Corner, Corner, Corner];
 
@@ -210,6 +223,7 @@ export function detectDocument(imageSource: HTMLImageElement | HTMLCanvasElement
       { x: 0, y: src.rows - 1 },
     ] as [Corner, Corner, Corner, Corner];
 
+    log('Using fallback (no valid corners detected)');
     let fallbackSrc = src;
     if (warpScale < 1.0) {
       fallbackSrc = new cv.Mat();
@@ -225,42 +239,46 @@ export function detectDocument(imageSource: HTMLImageElement | HTMLCanvasElement
     if (fallbackSrc !== src) fallbackSrc.delete();
   }
 
-  // Cleanup
-  resized.delete();
-  gray.delete();
-  smooth.delete();
-  hsv.delete();
-  saturation.delete();
-  satMask.delete();
-  edges.delete();
-  thresh.delete();
-  combined.delete();
-  kernelRect.delete();
-  contours.delete();
-  hierarchy.delete();
+    // Cleanup
+    resized.delete();
+    gray.delete();
+    smooth.delete();
+    hsv.delete();
+    saturation.delete();
+    satMask.delete();
+    edges.delete();
+    thresh.delete();
+    combined.delete();
+    kernelRect.delete();
+    contours.delete();
+    hierarchy.delete();
 
-  // Capture src metadata before deleting
-  const srcRows = src.rows;
-  const srcCols = src.cols;
-  const srcType = src.type();
-  src.delete();
-
-  return {
-    corners,
-    warped: warpedCanvas,
-    width: warpedCanvas.width,
-    height: warpedCanvas.height,
-    debug: {
-      srcRows,
-      srcCols,
-      srcType,
-      srcSamplePixel,
-      dstRows: warpedCanvas.height,
-      dstCols: warpedCanvas.width,
-      dstSamplePixel,
-      warpScaleUsed: warpScale,
-    },
-  };
+    // Capture src metadata before deleting
+    const srcRows = src.rows;
+    const srcCols = src.cols;
+    const srcType = src.type();
+    src.delete();
+    return {
+      corners,
+      warped: warpedCanvas,
+      width: warpedCanvas.width,
+      height: warpedCanvas.height,
+      debug: {
+        srcRows,
+        srcCols,
+        srcType,
+        srcSamplePixel,
+        dstRows: warpedCanvas.height,
+        dstCols: warpedCanvas.width,
+        dstSamplePixel,
+        warpScaleUsed: warpScale,
+      },
+    };
+  } catch (error) {
+    log('ERROR: ' + (error instanceof Error ? error.message : String(error)));
+    if (logger) logger('Stack: ' + (error instanceof Error ? error.stack : 'no stack'));
+    throw error;
+  }
 }
 
 /**

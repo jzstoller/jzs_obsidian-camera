@@ -130,7 +130,7 @@ class CameraModal extends Modal {
 			const seconds = String(now.getSeconds()).padStart(2, '0');
 			const timestampFilename = `image_${month}${day}${year}_${hours}${minutes}${seconds}`;
 				const scanTimestamp = new Date().toLocaleString('en-US', { timeZone: 'America/New_York', hour12: true });
-					let logMsg = `[PLUGIN v18] scanId=${scanId} Scan started: ${scanTimestamp}\nFile: ${selectedFile.name} (${selectedFile.size} bytes)\n`;
+					let logMsg = `[PLUGIN v19] scanId=${scanId} Scan started: ${scanTimestamp}\nFile: ${selectedFile.name} (${selectedFile.size} bytes)\n`;
 
 				try {
 					// Pass app and logger to loadOpenCV to capture all loader events
@@ -154,7 +154,10 @@ class CameraModal extends Modal {
 						new Notice("Image loaded. Running document detection...");
 						logMsg += `[${scanId}] Image loaded: ${img.width}×${img.height}px. Running document detection...\n`;
 						try {
-							const result = detectDocument(img);
+							const detectionLogger = (msg: string) => {
+								logMsg += `[${scanId}-DETECT] ${msg}\n`;
+							};
+							const result = detectDocument(img, detectionLogger);
 							if (result.debug) {
 								const d = result.debug;
 							logMsg += `[${scanId}-DEBUG] src=${d.srcCols}×${d.srcRows} type=${d.srcType} pixel0=[${d.srcSamplePixel}]\n`;
@@ -466,7 +469,7 @@ class CameraModal extends Modal {
 		const seconds = String(new Date().getSeconds()).padStart(2, '0');
 		const timestampFilename = `image_${month}${day}${year}_${hours}${minutes}${seconds}`;
 		const scanTimestamp = new Date().toLocaleString('en-US', { timeZone: 'America/New_York', hour12: true });
-		let logMsg = `[PLUGIN v18] Scan started: ${scanTimestamp}\nFile: ${selectedFile.name} (${selectedFile.size} bytes)\n`;
+		let logMsg = `[PLUGIN v19] Scan started: ${scanTimestamp}\nFile: ${selectedFile.name} (${selectedFile.size} bytes)\n`;
 
 		try {
 			await loadOpenCV(this.app, (msg) => { logMsg += msg + '\n'; });
@@ -488,7 +491,10 @@ class CameraModal extends Modal {
 				new Notice("Image loaded. Running document detection...");
 				logMsg += `Image loaded: ${img.width}×${img.height}px. Running document detection...\n`;
 				try {
-					const result = detectDocument(img);
+					const detectionLogger = (msg: string) => {
+						logMsg += `[DETECT] ${msg}\n`;
+					};
+					const result = detectDocument(img, detectionLogger);
 					if (result.debug) {
 						const d = result.debug;
 					logMsg += `[DEBUG] ${d.srcCols}×${d.srcRows} → ${d.dstCols}×${d.dstRows} (warpScale=${d.warpScaleUsed.toFixed(3)})\n`;
@@ -638,7 +644,7 @@ class CameraModal extends Modal {
 		const seconds = String(new Date().getSeconds()).padStart(2, '0');
 		const timestampFilename = `image_${month}${day}${year}_${hours}${minutes}${seconds}`;
 		const uploadTimestamp = new Date().toLocaleString('en-US', { timeZone: 'America/New_York', hour12: true });
-		let logMsg = `[PLUGIN v18] Upload started: ${uploadTimestamp}\nFile: ${selectedFile.name} (${selectedFile.size} bytes)\n`;
+		let logMsg = `[PLUGIN v19] Upload started: ${uploadTimestamp}\nFile: ${selectedFile.name} (${selectedFile.size} bytes)\n`;
 
 		try {
 			await loadOpenCV(this.app, (msg) => { logMsg += msg + '\n'; });
@@ -660,7 +666,10 @@ class CameraModal extends Modal {
 				new Notice("Image loaded. Running document detection...");
 				logMsg += `Image loaded: ${img.width}×${img.height}px. Running document detection...\n`;
 				try {
-					const result = detectDocument(img);
+					const detectionLogger = (msg: string) => {
+						logMsg += `[DETECT] ${msg}\n`;
+					};
+					const result = detectDocument(img, detectionLogger);
 					if (result.debug) {
 						const d = result.debug;
 					logMsg += `[DEBUG] ${d.srcCols}×${d.srcRows} → ${d.dstCols}×${d.dstRows} (warpScale=${d.warpScaleUsed.toFixed(3)})\n`;
@@ -778,6 +787,26 @@ class CameraModal extends Modal {
 			await appendToLogFile(this.app, logMsg);
 		};
 		reader.readAsDataURL(selectedFile);
+	}
+
+	static triggerDesktopUpload(app: App, cameraSettings: CameraPluginSettings) {
+		if (Platform.isIosApp) return;
+
+		const filePicker = document.createElement("input");
+		filePicker.type = "file";
+		filePicker.accept = "image/*";
+		filePicker.style.display = "none";
+
+		filePicker.onchange = async () => {
+			if (!filePicker.files?.length) return;
+			const selectedFile = filePicker.files[0];
+			const modal = new CameraModal(app, cameraSettings);
+			await modal.handleUploadFile(selectedFile);
+			document.body.removeChild(filePicker);
+		};
+
+		document.body.appendChild(filePicker);
+		filePicker.click();
 	}
 }
 
