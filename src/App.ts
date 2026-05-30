@@ -13,7 +13,7 @@ export default class ObsidianCamera extends Plugin {
         new CameraModal(this.app, this.settings).open();
       }
     });
-    this.addRibbonIcon("arrow-up", "JZS Doc Upload", (evt: MouseEvent) => {
+    this.addRibbonIcon("camera", "JZS Doc Upload", (evt: MouseEvent) => {
       if (Platform.isIosApp) {
         CameraModal.triggerIosUpload(this.app, this.settings);
       } else {
@@ -38,7 +38,7 @@ export default class ObsidianCamera extends Plugin {
     this.addCommand({
       id: "jzs-doc-upload",
       name: "JZS Doc Upload",
-      icon: "scan",
+      icon: "camera",
       callback: () => {
         if (Platform.isIosApp) {
           CameraModal.triggerIosUpload(this.app, this.settings);
